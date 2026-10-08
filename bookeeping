@@ -1,0 +1,143 @@
+import streamlit as st
+import json
+import os
+from datetime import datetime
+
+DB_FILE = "bookkeeping_data.json"
+
+def load_data():
+    """Load transactions and target data from JSON file."""
+    if not os.path.exists(DB_FILE):
+        return {"transactions": [], "targets": {}}
+    try:
+        with open(DB_FILE, "r") as f:
+            return json.load(f)
+    except json.JSONDecodeError:
+        return {"transactions": [], "targets": {}}
+
+def save_data(data):
+    """Save updated data to JSON file."""
+    with open(DB_FILE, "w") as f:
+        json.dump(data, f, indent=4)
+
+# Streamlit Page Setup
+st.set_page_config(page_title="Bookkeeping Manager", page_icon="💰", layout="wide")
+st.title("💰 Bookkeeping Manager")
+
+# Load current data
+data = load_data()
+
+# Navigation Sidebar
+st.sidebar.header("Navigation")
+menu = st.sidebar.radio("Go to", ["Add Transaction", "Set Target", "View Summary", "All Transactions"])
+
+# Option 1: Add Transaction
+if menu == "Add Transaction":
+    st.header("➕ Add Income / Expense")
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        trans_type = st.selectbox("Type", ["Income", "Expense"])
+        amount = st.number_input("Amount ($)", min_value=0.01, step=1.0, format="%.2f")
+        category = st.text_input("Category", placeholder="e.g., Salary, Food, Rent, Freelance")
+    
+    with col2:
+        date_entry = st.date_input("Date", datetime.today())
+        notes = st.text_area("Notes / Additional Information", placeholder="Enter optional notes about this entry...")
+
+    if st.button("Save Transaction", use_container_width=True):
+        if not category.strip():
+            st.error("Please enter a category!")
+        else:
+            new_entry = {
+                "id": len(data["transactions"]) + 1,
+                "type": trans_type,
+                "amount": float(amount),
+                "category": category.strip().title(),
+                "notes": notes.strip(),
+                "date": str(date_entry)
+            }
+            data["transactions"].append(new_entry)
+            save_data(data)
+            st.success(f"Successfully recorded {trans_type} of ${amount:.2f} under '{category}'!")
+
+# Option 2: Set Target
+elif menu == "Set Target":
+    st.header("🎯 Set Monthly Savings Target")
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        month = st.text_input("Target Month (YYYY-MM)", datetime.today().strftime('%Y-%m'))
+        target_amount = st.number_input("Target Savings Goal ($)", min_value=0.0, step=10.0, format="%.2f")
+    
+    with col2:
+        target_notes = st.text_area("Goal Details / Notes", placeholder="e.g., Save for vacation, Emergency fund...")
+
+    if st.button("Save Target Goal", use_container_width=True):
+        data["targets"][month] = {
+            "amount": float(target_amount),
+            "notes": target_notes.strip()
+        }
+        save_data(data)
+        st.success(f"Savings target set for {month}!")
+
+# Option 3: View Summary
+elif menu == "View Summary":
+    st.header("📊 Financial Summary & Goal Progress")
+    
+    total_income = sum(t["amount"] for t in data["transactions"] if t["type"] == "Income")
+    total_expense = sum(t["amount"] for t in data["transactions"] if t["type"] == "Expense")
+    net_savings = total_income - total_expense
+
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Total Income", f"${total_income:,.2f}")
+    col2.metric("Total Expense", f"${total_expense:,.2f}")
+    col3.metric("Net Balance / Savings", f"${net_savings:,.2f}", delta=f"${net_savings:,.2f}")
+
+    st.markdown("---")
+    
+    # Check savings target for current month
+    current_month = datetime.today().strftime('%Y-%m')
+    st.subheader(f"Target Progress for {current_month}")
+    
+    if current_month in data["targets"]:
+        target_info = data["targets"][current_month]
+        goal = target_info["amount"]
+        note = target_info["notes"]
+
+        st.write(f"**Goal:** ${goal:,.2f}")
+        if note:
+            st.write(f"**Notes:** {note}")
+
+        if goal > 0:
+            progress = min(max(net_savings / goal, 0.0), 1.0)
+            st.progress(progress)
+            st.caption(f"Progress: ${net_savings:,.2f} / ${goal:,.2f} ({progress * 100:.1f}%)")
+            
+            if net_savings >= goal:
+                st.balloons()
+                st.success("🎉 Congratulations! You have reached your target for this month!")
+            else:
+                st.warning(f"You need ${goal - net_savings:,.2f} more to reach your target.")
+    else:
+        st.info(f"No savings target set for {current_month}. Head to 'Set Target' to create one.")
+
+# Option 4: View All Transactions
+elif menu == "All Transactions":
+    st.header("📜 Transaction History")
+    
+    if data["transactions"]:
+        st.dataframe(
+            data["transactions"],
+            use_container_width=True,
+            column_config={
+                "id": "ID",
+                "date": "Date",
+                "type": "Type",
+                "category": "Category",
+                "amount": st.column_config.NumberColumn("Amount", format="$%.2f"),
+                "notes": "Notes"
+            }
+        )
+    else:
+        st.info("No transactions recorded yet. Add your first transaction from the sidebar!")
